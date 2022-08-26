@@ -15,13 +15,87 @@ namespace ChatServerConsoleApp
     public class Registration
     {
         bool listening;
+        PasswordHasher pwHasher;
 
-        public Registration()
+        //Dictionary<string, Account> accounts;
+        Dictionary<string, NameIdPair> accountNamesAndID;
+        Dictionary<int, string> sameNameIDs;
+
+        public Registration(Dictionary<string, Account> Accounts)
         {
             listening = true;
+            pwHasher = new PasswordHasher();
+            //accounts = Accounts;
+            accountNamesAndID = new Dictionary<string, NameIdPair>();
+            sameNameIDs = new Dictionary<int, string>();
+            FillAccountNames(Accounts);
+        }
+        
+        private void FillAccountNames(Dictionary<string, Account> Accounts)
+        {
+            foreach (var item in Accounts)
+            {
+                int id;
+                string tempID, name;
+                string nameID = item.Value.name;
+                int separator = nameID.IndexOf('#');
+                if (separator >= 0)
+                {
+                    name = nameID.Substring(0, separator);
+                    tempID = nameID.Remove(0, separator + 1);
+                    id = Convert.ToInt32(tempID);
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("Registration.cs, account name does not contain # which it should.");
+                    continue;
+                }
+
+                accountNamesAndID.Add(nameID, new NameIdPair(name, id));
+
+            }
         }
 
+        private string CreateUniqueUserName(string username)
+        {
+            sameNameIDs.Clear();
+            //populate sameNameIDs with ID keys and same as username's name values;
+            foreach (var item in accountNamesAndID)
+            {
+                if (item.Value.name == username)
+                {
+                    sameNameIDs.Add(item.Value.id, item.Value.name);
+                }
+            }
 
+            string temp = "";
+
+            //Add a unique #identifier to the name;
+            if(sameNameIDs.Count == 0)
+            {               
+                temp = username + "#0001";
+                accountNamesAndID.Add(temp, new NameIdPair(username, 1));
+            }
+            else
+            {
+                for (int i = 1; i < 10000; i++)
+                {
+                    if (!sameNameIDs.ContainsKey(i))
+                    {
+                        temp = username + "#" + i.ToString("D4");
+                        accountNamesAndID.Add(temp, new NameIdPair(username, i));
+                        break;
+                    }
+                }
+                if (String.IsNullOrEmpty(temp))
+                {
+                    temp = "ERROR1";
+                }
+            }
+
+            return temp;
+        }
+        
 
         public void StartListening()
         {
@@ -58,10 +132,16 @@ namespace ChatServerConsoleApp
                 StreamWriter writer = new StreamWriter(client.GetStream());
                 string s = String.Empty;
 
-                //Read the stream and process it accordingly (only 1 readline sent for registering);
+                //Write server's public key to the connected client for secure registration;
+                writer.WriteLine(Program.comms.secureChat.PublicKeyAsString());
+                writer.Flush();
+
+                //Read the stream and process it accordingly (only 1 readline sent for registering), including decrypting it;
                 s = reader.ReadLine();
 
-                string[] array = s.Split(',');
+                string plainS = Program.comms.secureChat.RSADecrypt(s);
+
+                string[] array = plainS.Split(',');
                 email = array[0];
                 password = array[1];
                 username = array[2];
@@ -69,25 +149,20 @@ namespace ChatServerConsoleApp
 
                 if ((!Program.comms.accounts.ContainsKey(email)))
                 {
-                    writer.WriteLine("Registration succesful");
-                    writer.Flush();
+                    string uniqueUsername = CreateUniqueUserName(username);
 
-                    //Add account to comms' dictionary;
-                    Program.comms.accounts.Add(email, new Account(email, password, username));
-
-                    //Add account to database;
-                    string path = Directory.GetCurrentDirectory();
-                    path += @"\TestDatabase.sqlite";
-
-                    using (SQLiteConnection connect = new SQLiteConnection("Data Source=" + path + "; Version=3;"))
+                    if(uniqueUsername == "ERROR1")
                     {
-                        connect.Open();
-                        string str = "INSERT INTO Accounts (Email, Password, Username) VALUES ('" + email + "', '" + password + "', '" + username + "')";
-                        SQLiteCommand cmd = new SQLiteCommand(str, connect);
-                        cmd.ExecuteNonQuery();
+                        writer.WriteLine("Registration failed, name's count limit reached. Please try a different name.");
+                        writer.Flush();
+                        
+                    }
+                    else
+                    {
+                        AddAccountToDatabaseAndDictionary(email, uniqueUsername, password);
 
-                        cmd.Dispose();
-                        connect.Close();
+                        writer.WriteLine("Registration succesful");
+                        writer.Flush();
                     }
 
                 }
@@ -118,6 +193,43 @@ namespace ChatServerConsoleApp
                 if (client != null) { client.Close(); }
             }
 
+        }
+
+        public void AddAccountToDatabaseAndDictionary(string email, string username, string password)
+        {
+            //Generate salt + saltString;
+            byte[] salt = pwHasher.GenerateSalt();
+            string saltString;
+
+            StringBuilder sb = new StringBuilder();
+            foreach (var item in salt)
+            {
+                sb.Append(item.ToString() + ",");
+            }
+            sb.Remove(sb.Length - 1, 1);
+
+            saltString = sb.ToString();
+
+            //Hash the password;
+            string hashedPassword = pwHasher.HashPassword(password, salt);
+
+            //Add account to database;
+            string path = Directory.GetCurrentDirectory();
+            path += @"\TestDatabase.sqlite";
+
+            using (SQLiteConnection connect = new SQLiteConnection("Data Source=" + path + "; Version=3;"))
+            {
+                connect.Open();
+                string str = "INSERT INTO Accounts (Email, Username, HashedPassword, Salt) VALUES ('" + email + "', '" + username + "', '" + hashedPassword + "', '" + saltString + "')";
+                SQLiteCommand cmd = new SQLiteCommand(str, connect);
+                cmd.ExecuteNonQuery();
+
+                cmd.Dispose();
+                connect.Close();
+            }
+
+            //Add account to comms' dictionary;
+            Program.comms.accounts.Add(email, new Account(email, username, hashedPassword, saltString));
         }
 
     }

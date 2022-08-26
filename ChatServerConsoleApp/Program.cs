@@ -16,13 +16,15 @@ namespace ChatServerConsoleApp
     {
         
         //private static Dictionary<string, bool> tempCheck = new Dictionary<string, bool>();
-        public static ServerComms comms = new ServerComms();
+
         private static bool running = true;
         static SQLiteCommand command = new SQLiteCommand();
+        static public Dictionary<string, Account> accounts = RetrieveAccountsFromDatabase();
 
-        public static Registration rComms = new Registration();
+        public static ServerComms comms = new ServerComms(accounts);
+        public static Registration rComms = new Registration(accounts);
 
-        static void CreateDatabaseIfNotExists()
+        public static void CreateDatabaseIfNotExists()
         {
             string path = Directory.GetCurrentDirectory();
             path += @"\TestDatabase.sqlite";
@@ -39,7 +41,7 @@ namespace ChatServerConsoleApp
                 connect.Open();
                 SQLiteCommand createTable = new SQLiteCommand();
                 createTable = connect.CreateCommand();
-                createTable.CommandText = "CREATE TABLE IF NOT EXISTS Accounts (Email TEXT UNIQUE, Password TEXT, Username TEXT)";
+                createTable.CommandText = "CREATE TABLE IF NOT EXISTS Accounts (Email TEXT UNIQUE, Username TEXT UNIQUE, HashedPassword TEXT, Salt TEXT)";
                 createTable.ExecuteNonQuery();
                 createTable.Dispose();
                 connect.Close();
@@ -47,34 +49,45 @@ namespace ChatServerConsoleApp
             
         }
 
-        //Filling of 'Accounts' table for testing purposes and initial "signed up accounts";
-        static void PopulateTable()
+        static private Dictionary<string, Account> RetrieveAccountsFromDatabase()
         {
+            Dictionary<string, Account> temp = new Dictionary<string, Account>();
+
             string path = Directory.GetCurrentDirectory();
             path += @"\TestDatabase.sqlite";
 
             using (SQLiteConnection connect = new SQLiteConnection("Data Source=" + path + "; Version=3;"))
             {
                 connect.Open();
-                SQLiteCommand cmd = new SQLiteCommand("INSERT INTO Accounts (Email, Password, Username)" +
-                    "VALUES ('a', '1', 'Bob')", connect);
-                cmd.ExecuteNonQuery();
-                cmd = new SQLiteCommand("INSERT INTO Accounts (Email, Password, Username)" +
-                    "VALUES ('b', '2', 'Rick')", connect);
-                cmd.ExecuteNonQuery();
-                cmd = new SQLiteCommand("INSERT INTO Accounts (Email, Password, Username)" +
-                    "VALUES ('c', '3', 'Tina')", connect);
-                cmd.ExecuteNonQuery();
-                cmd = new SQLiteCommand("INSERT INTO Accounts (Email, Password, Username)" +
-                    "VALUES ('d', '4', 'Clara')", connect);
-                cmd.ExecuteNonQuery();
+                string str = "SELECT * FROM Accounts";
+                SQLiteCommand cmd = new SQLiteCommand(str, connect);
+                SQLiteDataReader reader = cmd.ExecuteReader();
+
+                while (reader.Read())
+                {
+                    temp.Add((string)reader["Email"], new Account((string)reader["Email"], (string)reader["Username"], (string)reader["HashedPassword"], (string)reader["Salt"]));
+                }
+
                 cmd.Dispose();
                 connect.Close();
             }
+
+            return temp;
         }
 
-        //Clearing of 'Accounts' table for testing purposes;
-        static void ClearTable()
+        //Filling of 'Accounts' table for testing purposes and initial "signed up accounts";
+        static void PopulateDatabaseTableAndAccountsDictionay()
+        {
+
+            rComms.AddAccountToDatabaseAndDictionary("a", "Bob#1001", "1");
+            rComms.AddAccountToDatabaseAndDictionary("b", "Rick#1002", "2");
+            rComms.AddAccountToDatabaseAndDictionary("c", "Tina#1003", "3");
+            rComms.AddAccountToDatabaseAndDictionary("d", "Clara#1004", "4");
+
+        }
+
+        //Clearing of 'Accounts' table for testing purposes, as well as comms.accounts dictionary;
+        static void ClearDatabaseTableAndAccountsDictionary()
         {
             string path = Directory.GetCurrentDirectory();
             path += @"\TestDatabase.sqlite";
@@ -87,6 +100,8 @@ namespace ChatServerConsoleApp
                 cmd.Dispose();
                 connect.Close();
             }
+
+            comms.accounts.Clear();
         }
 
         //Printing of 'Accounts' table in Console.WriteLine for testing purposes;
@@ -106,7 +121,7 @@ namespace ChatServerConsoleApp
                 Console.WriteLine("-----");
                 while (reader.Read())
                 {
-                    Console.WriteLine("Email:  {0},  Password:  {1},  Username:  {2}.", reader["Email"], reader["Password"], reader["Username"]);
+                    Console.WriteLine("Email:  {0},  Username:  {1},  HashedPassword:  {2},  Salt:  {3}.", reader["Email"], reader["Username"], reader["HashedPassword"], reader["Salt"]);
                 }
                 Console.WriteLine("-----");
 
@@ -152,7 +167,7 @@ namespace ChatServerConsoleApp
             }
             else if(s == "Fill")
             {
-                PopulateTable();
+                PopulateDatabaseTableAndAccountsDictionay();
             }
             else if (s == "Print")
             {
@@ -160,7 +175,7 @@ namespace ChatServerConsoleApp
             }
             else if(s == "Clear")
             {
-                ClearTable();
+                ClearDatabaseTableAndAccountsDictionary();
             }
         }
 

@@ -16,13 +16,19 @@ namespace ChatServerConsoleApp
     {
         public List<ClientInfo> threadList;
         public Dictionary<string, Account> accounts;
+//        public List<string> usernameList;
         private string[] helpcommands;
         private bool listening;
+        public Security secureChat;
+        PasswordHasher pwHasher;
 
-        public ServerComms()
+        public ServerComms(Dictionary<string, Account> Accounts)
         {
+            pwHasher = new PasswordHasher();
+            secureChat = new Security();
             threadList = new List<ClientInfo>();
-            accounts = new Dictionary<string, Account>();
+//            usernameList = new List<string>();
+            accounts = Accounts;
             helpcommands = new string[] { "/help", "/nickname", "/changenick", "/who", "/test" };
 
             listening = true;
@@ -30,26 +36,14 @@ namespace ChatServerConsoleApp
             RetrieveAccountsFromDatabase();
         }
 
-        public void RetrieveAccountsFromDatabase()
+        private void RetrieveAccountsFromDatabase()
         {
-            string path = Directory.GetCurrentDirectory();
-            path += @"\TestDatabase.sqlite";
 
-            using (SQLiteConnection connect = new SQLiteConnection("Data Source=" + path + "; Version=3;"))
+            foreach (var item in accounts)
             {
-                connect.Open();
-                string str = "SELECT * FROM Accounts";
-                SQLiteCommand cmd = new SQLiteCommand(str, connect);
-                SQLiteDataReader reader = cmd.ExecuteReader();
-
-                while (reader.Read())
-                {   
-                    accounts.Add((string)reader["Email"], new Account((string)reader["Email"], (string)reader["Password"], (string)reader["Username"]));
-                }
-
-                cmd.Dispose();
-                connect.Close();
+//                usernameList.Add(item.Value.name);
             }
+
         }
 
         public void StartListening()
@@ -85,6 +79,7 @@ namespace ChatServerConsoleApp
         private void ProcessClientRequests(object argument)
         {
             TcpClient client = (TcpClient)argument;
+            ClientInfo user = null;
             try
             {
                 //Establish streamreader and -writer;
@@ -92,19 +87,37 @@ namespace ChatServerConsoleApp
                 StreamWriter writer = new StreamWriter(client.GetStream());
                 string s = String.Empty;
 
-                //Intercept first streamreader message from client, which will be the account name+password to check if account is registered and not yet logged in,
-                //before proceeding;
+                //Send server's public key to the client before the client send the login validation info, so that the login info can be sent securely.
+                BroadcastPublicKey(writer, "Global", secureChat.pubKeyAsString);
+
+                //Intercept first streamreader message from client, which (ENCRYPTED) will be the account name and password 
+                //to check if account is registered and not yet logged in before proceeding;
                 s = reader.ReadLine();
+                Console.WriteLine(s);
+                string tems = secureChat.RSADecrypt(s);
 
-                string[] array = s.Split(',');
+                //[0] = email, [1] = password;
+                string[] array = tems.Split(' ');
 
-                if((accounts.ContainsKey(array[0]) && accounts[array[0]].password == array[1] && accounts[array[0]].online == false) )
+
+                if((accounts.ContainsKey(array[0]) && pwHasher.CheckPassword(accounts[array[0]].salt, array[1], accounts[array[0]].hashedPassword) && accounts[array[0]].online == false) )
                 {
 
+                    //Intercept SECOND streamreader message from client, which will be the public key's modulus and exponent;
+                    s = reader.ReadLine();
+                    //[0] = pub key's modulus, [1] = pub key's exponent.
+                    string[] keyArray = s.Split(' ');
+
+                    //Convert public key strings to byte[];
+                    byte[] tempModulus = Array.ConvertAll(keyArray[0].Split(','), Byte.Parse);
+                    byte[] tempExponent = Array.ConvertAll(keyArray[1].Split(','), Byte.Parse);
+
                     accounts[array[0]].online = true;
-                    ClientInfo user = new ClientInfo(client, reader, writer, Thread.CurrentThread, accounts[array[0]].name);
+                    user = new ClientInfo(client, reader, writer, Thread.CurrentThread, accounts[array[0]].name, accounts[array[0]].email, tempModulus, tempExponent);
                     threadList.Add(user);
 
+
+                    //Listen to stream until disconnected;
                     while (!(s = reader.ReadLine()).Equals("/disconnect"))
                     {
 
@@ -121,10 +134,17 @@ namespace ChatServerConsoleApp
                             //Check if recipient is currently online;
                             int k = threadList.FindIndex(x => x.nick == tempArray[1]);
 
-                            if(k >= 0)
+                            if (k >= 0)
                             {
                                 try
                                 {
+                                    //If it's the first contact between the 2 this session, add PM recipient to sender account's contactList, and vice versa.
+                                    if (!accounts[user.email].contactList.Contains(tempArray[1]))
+                                    {
+                                        accounts[user.email].contactList.Add(tempArray[1]);
+                                        //accounts[tempArray[1]].contactList.Add(user.email);
+                                    }
+
                                     //Alter message to replace recipient with sender before forwarding to recipient;
                                     tempArray[1] = user.nick;
 
@@ -144,7 +164,7 @@ namespace ChatServerConsoleApp
                                     Console.WriteLine("Problem with client communication (Private message). Exiting thread.");
                                     Console.WriteLine(e);
                                 }
-                                
+
                             }
                             else
                             {
@@ -166,10 +186,35 @@ namespace ChatServerConsoleApp
                             }
 
                         }
+                        else if (s.StartsWith("/Global"))
+                        {
+                            s = s.Remove(0, 8);
+
+                            //Decrypt the message using the server's private key;
+                            string decryptedText = secureChat.RSADecrypt(s);
+
+                            for (int i = 0; i < threadList.Count; i++)
+                            {
+                                //Encrypt the message (including the user's name) using each client's public key;
+                                string encyptedText = secureChat.RSAEncrypt(user.nick + ": " + decryptedText, threadList[i].RSAParams);
+                                
+                                try
+                                {
+                                    threadList[i].writer.WriteLine("/Global " + encyptedText);
+                                    threadList[i].writer.Flush();
+                                }
+                                catch (IOException e)
+                                {
+                                    Console.WriteLine("Problem with client communication. Exiting thread.");
+                                    Console.WriteLine(e);
+                                }
+
+                            }
+                        }
                         //Check for "/" commands, process them and send info back to just that client instead of echoing it to all clients;
                         else if (s.StartsWith("/"))
                         {
-                            string temp = CheckForSlashCommands(s);
+                            string temp = CheckForSlashCommands(s, user);
                             try
                             {
                                 user.writer.WriteLine(temp);
@@ -182,28 +227,6 @@ namespace ChatServerConsoleApp
                             }
 
                         }
-                        else
-                        {
-                            for (int i = 0; i < threadList.Count; i++)
-                            {
-                                try
-                                {
-                                    threadList[i].writer.WriteLine(user.nick + ": " + s);
-                                    threadList[i].writer.Flush();
-                                }
-                                catch (IOException e)
-                                {
-                                    Console.WriteLine("Problem with client communication. Exiting thread.");
-                                    Console.WriteLine(e);
-                                }
-
-                            }
-                        }
-
-
-
-                        //writer.WriteLine("From server -> " + s);
-                        //writer.Flush();
 
                     }
                     for (int i = 0; i < threadList.Count; i++)
@@ -230,6 +253,7 @@ namespace ChatServerConsoleApp
                     {
                         Console.WriteLine("Problem with client communication (Error001). Exiting thread.");
                         Console.WriteLine(e);
+
                     }
 
                 }
@@ -244,8 +268,23 @@ namespace ChatServerConsoleApp
             }
             catch (IOException e)
             {
-                Console.WriteLine("Problem with client communication. Exiting thread.");
-                Console.WriteLine(e);
+                Console.WriteLine("Problem with client communication (Client/User '{0}' forcefully cut connection). Exiting thread.", user != null? user.email : "unknown name");
+                //Console.WriteLine(e);
+
+                //Check if ClientInfo user was established before IOException occurred, remove from threadList if so and set the account's online status to false; 
+                if (user != null)
+                {
+                    for (int i = 0; i < threadList.Count; i++)
+                    {
+                        if (threadList[i] == user)
+                        {
+                            threadList.Remove(threadList[i]);
+                            accounts[user.email].online = false;
+                            i--;
+                        }
+                    }
+                }
+
             }
             finally
             {
@@ -253,7 +292,35 @@ namespace ChatServerConsoleApp
             }
         }
 
-        public string CheckForSlashCommands(string s)
+        public void BroadcastPublicKey(ClientInfo recipient, string keyOwner, string publicKey)
+        {
+            try
+            {
+                recipient.writer.WriteLine("/PublicKey " + keyOwner + " " + publicKey);
+                recipient.writer.Flush();
+            }
+            catch (IOException e)
+            {
+                Console.WriteLine("Problem with client communication (sending public key). Exiting thread.");
+                Console.WriteLine(e);
+            }
+        }
+
+        public void BroadcastPublicKey(StreamWriter writer, string keyOwner, string publicKey)
+        {
+            try
+            {
+                writer.WriteLine("/PublicKey " + keyOwner + " " + publicKey);
+                writer.Flush();
+            }
+            catch (IOException e)
+            {
+                Console.WriteLine("Problem with client communication (sending public key). Exiting thread.");
+                Console.WriteLine(e);
+            }
+        }
+
+        public string CheckForSlashCommands(string s, ClientInfo sender)
         {
             switch (s)
             {
@@ -276,8 +343,63 @@ namespace ChatServerConsoleApp
                 case "/test":
 
                     return "This is a test";
+                case string sTemp when s.StartsWith("/RequestKey"):
+                    {
+                        string[] array = s.Split(' ');
+                        int i = threadList.FindIndex(x => x.nick == array[1]);
+                        //If PM recipient is online, send recipient's public key to client requesting a PM, and vice versa;
+                        if (i != -1)
+                        {
+                            BroadcastPublicKey(sender, threadList[i].nick, threadList[i].PublicKeyAsString());
+                            BroadcastPublicKey(threadList[i], sender.nick, sender.PublicKeyAsString());
+                            return "Public keys shared.";
+                        }
+                        //Else send offline error to the requesting client;
+                        else
+                        {
+                            return "ERROR002 " + array[1];
+                        }
+                    }
+                case string sTemp when s.StartsWith("/RequestMultipleKeys"):
+                    {
+                        string[] array = s.Split(' ');
 
+                        for (int ji = 1; ji < array.Length; ji++)
+                        {
+                            int i = threadList.FindIndex(x => x.nick == array[ji]);
+                            //If PM recipient is online, send recipient's public key to client requesting a PM, and vice versa;
+                            if (i != -1)
+                            {
+                                BroadcastPublicKey(sender, threadList[i].nick, threadList[i].PublicKeyAsString());
+                                BroadcastPublicKey(threadList[i], sender.nick, sender.PublicKeyAsString());
+                                
+                            }
+                        }
+                        return "Public keys shared of those who are online.";
+                    }
+                case "/RequestContactKeys":
+                    List<string> tempList = accounts[sender.email].contactList;
+                    
+                    if(tempList.Count > 0)
+                    {
+                        for (int ji = 0; ji < tempList.Count; ji++)
+                        {
+                            int i = threadList.FindIndex(x => x.nick == tempList[ji]);
+                            //If PM recipient is online, send recipient's public key to client requesting a PM, and vice versa;
+                            if (i != -1)
+                            {
+                                BroadcastPublicKey(sender, threadList[i].nick, threadList[i].PublicKeyAsString());
+                                BroadcastPublicKey(threadList[i], sender.nick, sender.PublicKeyAsString());
 
+                            }
+                        }
+                        return "All public keys of this session's contacts updated.";
+                    }
+                    else
+                    {
+                        return "No PM history this sesssion.";
+                    }
+                    
                 default:
                     return "";
             }
