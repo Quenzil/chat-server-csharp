@@ -9,10 +9,9 @@ namespace ChatServerConsoleApp
 {
     public class Security
     {
+        public string pubKeyAsString;
         private RSACryptoServiceProvider RSA;
         public RSAParameters RSAParams;
-
-        public string pubKeyAsString;
 
         public Security()
         {
@@ -45,9 +44,33 @@ namespace ChatServerConsoleApp
             return modulus + " " + exponent;
         }
 
+        public string RSADecrypt(string DataToDecrypt)
+        {
+            try
+            {
+                //Split encrypted string message back into byte[];
+
+                byte[] dataToDecrypt = Array.ConvertAll(DataToDecrypt.Split(','), Byte.Parse);
+                byte[] decryptedData;
+
+                //Decrypt the encrypted data using the server's RSA private key.
+                decryptedData = RSA.Decrypt(dataToDecrypt, false);
+
+                UnicodeEncoding ByteConverter = new UnicodeEncoding();
+
+                string temp = ByteConverter.GetString(decryptedData);
+
+                return temp;
+            }
+            catch (CryptographicException e)
+            {
+                System.Diagnostics.Debug.WriteLine(e.Message);
+                return null;
+            }
+        }
+
         public string RSAEncrypt(string DataToEncrypt, RSAParameters RSAKeyInfo)
         {
-
             try
             {
                 string s;
@@ -74,7 +97,6 @@ namespace ChatServerConsoleApp
                 sb.Remove(sb.Length - 1, 1);
                 s = sb.ToString();
 
-
                 return s;
             }
             catch (CryptographicException e)
@@ -82,50 +104,6 @@ namespace ChatServerConsoleApp
                 System.Diagnostics.Debug.WriteLine(e.Message);
                 return null;
             }
-
-
         }
-
-        public string RSADecrypt(string DataToDecrypt)
-        {
-
-            try
-            {
-                string s;
-
-                //Split encrypted string message back into byte[];
-
-                byte[] dataToDecrypt = Array.ConvertAll(DataToDecrypt.Split(','), Byte.Parse);
-                byte[] decryptedData;
-
-                //Decrypt the encrypted data using the server's RSA private key.
-                decryptedData = RSA.Decrypt(dataToDecrypt, false);
-
-
-                UnicodeEncoding ByteConverter = new UnicodeEncoding();
-
-                string temp = ByteConverter.GetString(decryptedData);
-                /*
-                //Convert encrypted byte[] back to string.
-                StringBuilder sb = new StringBuilder();
-                foreach (var item in decryptedData)
-                {
-                    sb.Append(item + ",");
-                }
-                sb.Remove(sb.Length - 1, 1);
-                s = sb.ToString();
-                */
-
-                return temp;
-            }
-            catch (CryptographicException e)
-            {
-                System.Diagnostics.Debug.WriteLine(e.Message);
-                return null;
-            }
-
-
-        }
-
     }
 }

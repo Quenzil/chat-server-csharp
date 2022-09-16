@@ -8,30 +8,31 @@ namespace ChatServerConsoleApp
 {
     public class Account : IEquatable<Account>
     {
-        public string email, name, hashedPassword;
-        public byte[] salt;
-        public bool online;
         public List<string> contactList;
+        public string email, hashedPassword, name;
+        public bool online;
+        public byte[] salt;
+
 
         public Account(string Email, string Name, string HashedPassword, string SaltString)
         {
+            contactList = new List<string>();
             email = Email;
             hashedPassword = HashedPassword;
             name = Name;
-            salt = ConvertedSaltString(SaltString);
             online = false;
-            contactList = new List<string>();
-        }
-
-        public bool Equals(Account other)
-        {
-            return (this.email == other.email);
+            salt = ConvertedSaltString(SaltString);           
         }
 
         private byte[] ConvertedSaltString(string SaltString)
         {
             byte[] salt = Array.ConvertAll(SaltString.Split(','), Byte.Parse);
             return salt;
+        }
+
+        public bool Equals(Account other)
+        {
+            return (this.email == other.email);
         }
     }
 }

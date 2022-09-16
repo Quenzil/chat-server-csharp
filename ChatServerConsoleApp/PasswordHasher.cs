@@ -11,6 +11,12 @@ namespace ChatServerConsoleApp
     public class PasswordHasher
     {
 
+        // Hash the password+salt input and compare to the hashedpassword input, return wether they're equal or not;
+        public bool CheckPassword(byte[] Salt, string Password, string HashedPassword)
+        {
+            return HashPassword(Password, Salt) == HashedPassword;
+        }
+
 
         public byte[] GenerateSalt()
         {
@@ -31,14 +37,6 @@ namespace ChatServerConsoleApp
 
             return hashedPassword;
         }
-
-
-        //Hash the password+salt input and compare to the hashedpassword input, return wether they're equal or not;
-        public bool CheckPassword(byte[] Salt, string Password, string HashedPassword)
-        {
-            return HashPassword(Password, Salt) == HashedPassword;
-        }
-
 
     }
 }

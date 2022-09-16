@@ -8,13 +8,13 @@ namespace ChatServerConsoleApp
 {
     public class NameIdPair
     {
-        public string name;
         public int id;
+        public string name;
 
         public NameIdPair(string Name, int ID)
-        {
-            name = Name;
+        {           
             id = ID;
+            name = Name;
         }
 
 

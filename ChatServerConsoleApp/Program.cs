@@ -14,12 +14,9 @@ namespace ChatServerConsoleApp
 {
     class Program
     {
-        
-        //private static Dictionary<string, bool> tempCheck = new Dictionary<string, bool>();
-
-        private static bool running = true;
-        static SQLiteCommand command = new SQLiteCommand();
-        static public Dictionary<string, Account> accounts = RetrieveAccountsFromDatabase();
+        static bool running = true;
+        //static SQLiteCommand command = new SQLiteCommand();
+        public static Dictionary<string, Account> accounts = RetrieveAccountsFromDatabase();
 
         public static ServerComms comms = new ServerComms(accounts);
         public static Registration rComms = new Registration(accounts);
@@ -33,8 +30,6 @@ namespace ChatServerConsoleApp
             {
                 SQLiteConnection.CreateFile("TestDatabase.sqlite");
             }
-
-            
             
             using (SQLiteConnection connect = new SQLiteConnection("Data Source=" + path + "; Version=3;"))
             {
@@ -45,9 +40,9 @@ namespace ChatServerConsoleApp
                 createTable.ExecuteNonQuery();
                 createTable.Dispose();
                 connect.Close();
-            }
-            
+            }          
         }
+
 
         static private Dictionary<string, Account> RetrieveAccountsFromDatabase()
         {
@@ -75,18 +70,16 @@ namespace ChatServerConsoleApp
             return temp;
         }
 
-        //Filling of 'Accounts' table for testing purposes and initial "signed up accounts";
+        // Filling of 'Accounts' table for testing purposes, initial "signed up accounts";
         static void PopulateDatabaseTableAndAccountsDictionay()
         {
-
             rComms.AddAccountToDatabaseAndDictionary("a", "Bob#1001", "1");
             rComms.AddAccountToDatabaseAndDictionary("b", "Rick#1002", "2");
             rComms.AddAccountToDatabaseAndDictionary("c", "Tina#1003", "3");
             rComms.AddAccountToDatabaseAndDictionary("d", "Clara#1004", "4");
-
         }
 
-        //Clearing of 'Accounts' table for testing purposes, as well as comms.accounts dictionary;
+        // Clearing of 'Accounts' table, as well as comms.accounts dictionary, for testing purposes;
         static void ClearDatabaseTableAndAccountsDictionary()
         {
             string path = Directory.GetCurrentDirectory();
@@ -104,7 +97,7 @@ namespace ChatServerConsoleApp
             comms.accounts.Clear();
         }
 
-        //Printing of 'Accounts' table in Console.WriteLine for testing purposes;
+        // Printing of 'Accounts' table in Console.WriteLine for testing purposes;
         static void PrintAllDatabaseData()
         {
             string path = Directory.GetCurrentDirectory();
@@ -130,7 +123,7 @@ namespace ChatServerConsoleApp
             }
         }
 
-        static async Task ReadConsoleAsync()
+        static async void ReadConsoleAsync()
         {
             await Task.Run(() =>
             {
@@ -138,15 +131,12 @@ namespace ChatServerConsoleApp
                 {
                     string temp = Console.ReadLine();
                     ServerCommands(temp);
-                    //Thread.Sleep(3000);
-                    //comms.StopListening();
-                    //running = false;
                 }
 
             });
         }
 
-        static async Task StartRegistrationsAsync()
+        static async void StartRegistrationsAsync()
         {
             await Task.Run(() =>
             {
@@ -158,8 +148,10 @@ namespace ChatServerConsoleApp
         {
             if (s == "Stop")
             {
-                Console.WriteLine("Some closing code");
+                Console.WriteLine("Server is shutting down, please hold.");
+                rComms.StopListeningForConnections();
                 comms.CloseAllConnections();
+                running = false;
             }
             else if (s == "Count")
             {
@@ -182,19 +174,15 @@ namespace ChatServerConsoleApp
 
         static void Main(string[] args)
         {
-            //Console.WriteLine("Current directory is {0}", Directory.GetCurrentDirectory().ToString());
             CreateDatabaseIfNotExists();
             ReadConsoleAsync();
             StartRegistrationsAsync();
 
             comms.StartListening();
-            
+
+            Console.WriteLine("Server if now offline.");
             Console.ReadLine();
         }
-
-
-
     }
-
 }
 

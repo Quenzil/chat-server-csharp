@@ -14,15 +14,14 @@ namespace ChatServerConsoleApp
 {
     public class ClientInfo
     {
+        public string email;
+        public string nick;
         public TcpClient client;
         public StreamReader reader;
         public StreamWriter writer;
-        public Thread thread;
-        public string nick;
-        public string email;
         public Account linkedAccount;
-
         public RSAParameters RSAParams;
+        public Thread thread;
 
         public ClientInfo(TcpClient Client, StreamReader Reader, StreamWriter Writer, Thread Thread, string NickName, string Email, byte[] Modulus, byte[] Exponent)
         {
@@ -39,7 +38,7 @@ namespace ChatServerConsoleApp
 
         public string PublicKeyAsString()
         {
-            //Create separate string representations of Modulus and Exponent;
+            // Create separate string representations of Modulus and Exponent;
             StringBuilder sb = new StringBuilder();
             string modulus, exponent;
             foreach (var item in RSAParams.Modulus)
