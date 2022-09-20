@@ -216,11 +216,11 @@ namespace ChatServerConsoleApp
                     Console.WriteLine("Access denied to client due to incorrect account/password/status.");
                     try
                     {
-                        SendMessage(writer, "Error001");
+                        SendMessage(writer, "ERROR001");
                     }
                     catch (IOException)
                     {
-                        Console.WriteLine("Problem with client communication (Error001). Exiting thread.");
+                        Console.WriteLine("Problem with client communication (ERROR001). Exiting thread.");
                     }
                 }
 
